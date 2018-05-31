@@ -11,7 +11,6 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/config"
-	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
@@ -54,7 +53,7 @@ func parseSecurityOpt(container *container.Container, config *containertypes.Hos
 	return nil
 }
 
-func (daemon *Daemon) getLayerInit() func(containerfs.ContainerFS) error {
+func setupInitLayer(idMappings *idtools.IDMappings) func(containerfs.ContainerFS) error {
 	return nil
 }
 
@@ -629,25 +628,7 @@ func (daemon *Daemon) setDefaultIsolation() error {
 	return nil
 }
 
-func rootFSToAPIType(rootfs *image.RootFS) types.RootFS {
-	var layers []string
-	for _, l := range rootfs.DiffIDs {
-		layers = append(layers, l.String())
-	}
-	return types.RootFS{
-		Type:   rootfs.Type,
-		Layers: layers,
-	}
-}
-
 func setupDaemonProcess(config *config.Config) error {
-	return nil
-}
-
-// verifyVolumesInfo is a no-op on windows.
-// This is called during daemon initialization to migrate volumes from pre-1.7.
-// volumes were not supported on windows pre-1.7
-func (daemon *Daemon) verifyVolumesInfo(container *container.Container) error {
 	return nil
 }
 

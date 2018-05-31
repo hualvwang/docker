@@ -402,15 +402,15 @@ func (a *Allocator) getPredefinedPool(as string, ipV6 bool) (*net.IPNet, error) 
 			continue
 		}
 		aSpace.Lock()
-		_, ok := aSpace.subnets[SubnetKey{AddressSpace: as, Subnet: nw.String()}]
-		aSpace.Unlock()
-		if ok {
+		if _, ok := aSpace.subnets[SubnetKey{AddressSpace: as, Subnet: nw.String()}]; ok {
+			aSpace.Unlock()
 			continue
 		}
-
 		if !aSpace.contains(as, nw) {
+			aSpace.Unlock()
 			return nw, nil
 		}
+		aSpace.Unlock()
 	}
 
 	return nil, types.NotFoundErrorf("could not find an available, non-overlapping IPv%d address pool among the defaults to assign to the network", v)
@@ -526,6 +526,7 @@ func (a *Allocator) ReleaseAddress(poolID string, address net.IP) error {
 		return types.InternalErrorf("could not find bitmask in datastore for %s on address %v release from pool %s: %v",
 			k.String(), address, poolID, err)
 	}
+	defer logrus.Debugf("Released address PoolID:%s, Address:%v Sequence:%s", poolID, address, bm.String())
 
 	return bm.Unset(ipToUint64(h))
 }
@@ -537,6 +538,7 @@ func (a *Allocator) getAddress(nw *net.IPNet, bitmask *bitseq.Handle, prefAddres
 		base    *net.IPNet
 	)
 
+	logrus.Debugf("Request address PoolID:%v %s Serial:%v PrefAddress:%v ", nw, bitmask.String(), serial, prefAddress)
 	base = types.GetIPNetCopy(nw)
 
 	if bitmask.Unselected() <= 0 {

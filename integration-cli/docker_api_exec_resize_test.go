@@ -9,8 +9,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/integration-cli/checker"
-	"github.com/docker/docker/integration-cli/request"
+	"github.com/docker/docker/internal/test/request"
 	"github.com/go-check/check"
 )
 
@@ -22,7 +23,11 @@ func (s *DockerSuite) TestExecResizeAPIHeightWidthNoInt(c *check.C) {
 	endpoint := "/exec/" + cleanedContainerID + "/resize?h=foo&w=bar"
 	res, _, err := request.Post(endpoint)
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.LessThan(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusInternalServerError)
+	} else {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	}
 }
 
 // Part of #14845
@@ -59,7 +64,7 @@ func (s *DockerSuite) TestExecResizeImmediatelyAfterExecStart(c *check.C) {
 		}
 
 		payload := bytes.NewBufferString(`{"Tty":true}`)
-		conn, _, err := request.SockRequestHijack("POST", fmt.Sprintf("/exec/%s/start", execID), payload, "application/json", daemonHost())
+		conn, _, err := sockRequestHijack("POST", fmt.Sprintf("/exec/%s/start", execID), payload, "application/json", daemonHost())
 		if err != nil {
 			return fmt.Errorf("Failed to start the exec: %q", err.Error())
 		}

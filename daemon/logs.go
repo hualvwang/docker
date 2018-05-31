@@ -1,11 +1,9 @@
 package daemon // import "github.com/docker/docker/daemon"
 
 import (
-	"errors"
+	"context"
 	"strconv"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
@@ -14,6 +12,7 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/errdefs"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,7 +22,7 @@ import (
 //
 // if it returns nil, the config channel will be active and return log
 // messages until it runs out or the context is canceled.
-func (daemon *Daemon) ContainerLogs(ctx context.Context, containerName string, config *types.ContainerLogsOptions) (<-chan *backend.LogMessage, bool, error) {
+func (daemon *Daemon) ContainerLogs(ctx context.Context, containerName string, config *types.ContainerLogsOptions) (messages <-chan *backend.LogMessage, isTTY bool, retErr error) {
 	lg := logrus.WithFields(logrus.Fields{
 		"module":    "daemon",
 		"method":    "(*Daemon).ContainerLogs",
@@ -52,8 +51,10 @@ func (daemon *Daemon) ContainerLogs(ctx context.Context, containerName string, c
 	}
 	if cLogCreated {
 		defer func() {
-			if err = cLog.Close(); err != nil {
-				logrus.Errorf("Error closing logger: %v", err)
+			if retErr != nil {
+				if err = cLog.Close(); err != nil {
+					logrus.Errorf("Error closing logger: %v", err)
+				}
 			}
 		}()
 	}
@@ -102,6 +103,13 @@ func (daemon *Daemon) ContainerLogs(ctx context.Context, containerName string, c
 	// this goroutine functions as a shim between the logger and the caller.
 	messageChan := make(chan *backend.LogMessage, 1)
 	go func() {
+		if cLogCreated {
+			defer func() {
+				if err = cLog.Close(); err != nil {
+					logrus.Errorf("Error closing logger: %v", err)
+				}
+			}()
+		}
 		// set up some defers
 		defer logs.Close()
 
@@ -183,4 +191,19 @@ func (daemon *Daemon) mergeAndVerifyLogConfig(cfg *containertypes.LogConfig) err
 	}
 
 	return logger.ValidateLogOpts(cfg.Type, cfg.Config)
+}
+
+func (daemon *Daemon) setupDefaultLogConfig() error {
+	config := daemon.configStore
+	if len(config.LogConfig.Config) > 0 {
+		if err := logger.ValidateLogOpts(config.LogConfig.Type, config.LogConfig.Config); err != nil {
+			return errors.Wrap(err, "failed to set log opts")
+		}
+	}
+	daemon.defaultLogConfig = containertypes.LogConfig{
+		Type:   config.LogConfig.Type,
+		Config: config.LogConfig.Config,
+	}
+	logrus.Debugf("Using default logging driver %s", daemon.defaultLogConfig.Type)
+	return nil
 }

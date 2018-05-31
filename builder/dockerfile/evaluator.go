@@ -37,8 +37,7 @@ import (
 
 func dispatch(d dispatchRequest, cmd instructions.Command) (err error) {
 	if c, ok := cmd.(instructions.PlatformSpecific); ok {
-		optionsOS := system.ParsePlatform(d.builder.options.Platform).OS
-		err := c.CheckPlatform(optionsOS)
+		err := c.CheckPlatform(d.state.operatingSystem)
 		if err != nil {
 			return errdefs.InvalidParameter(err)
 		}
@@ -112,11 +111,11 @@ type dispatchState struct {
 	imageID         string
 	baseImage       builder.Image
 	stageName       string
-	buildArgs       *buildArgs
+	buildArgs       *BuildArgs
 	operatingSystem string
 }
 
-func newDispatchState(baseArgs *buildArgs) *dispatchState {
+func newDispatchState(baseArgs *BuildArgs) *dispatchState {
 	args := baseArgs.Clone()
 	args.ResetAllowed()
 	return &dispatchState{runConfig: &container.Config{}, buildArgs: args}
@@ -194,7 +193,7 @@ type dispatchRequest struct {
 	stages  *stagesBuildResults
 }
 
-func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs, stages *stagesBuildResults) dispatchRequest {
+func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *BuildArgs, stages *stagesBuildResults) dispatchRequest {
 	return dispatchRequest{
 		state:   newDispatchState(buildArgs),
 		shlex:   shell.NewLex(escapeToken),

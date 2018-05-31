@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -14,11 +15,8 @@ import (
 	"github.com/docker/docker/integration-cli/checker"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/daemon"
-	"github.com/docker/docker/integration-cli/fixtures/plugin"
-	"github.com/docker/docker/integration-cli/request"
+	"github.com/docker/docker/internal/test/fixtures/plugin"
 	"github.com/go-check/check"
-	"github.com/gotestyourself/gotestyourself/icmd"
-	"golang.org/x/net/context"
 )
 
 var (
@@ -159,9 +157,7 @@ func (s *DockerSuite) TestPluginInstallDisableVolumeLs(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginSet(c *check.C) {
-	// Create a new plugin with extra settings
-	client, err := request.NewClient()
-	c.Assert(err, checker.IsNil, check.Commentf("failed to create test client"))
+	client := testEnv.APIClient()
 
 	name := "test"
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -171,7 +167,8 @@ func (ps *DockerPluginSuite) TestPluginSet(c *check.C) {
 	mntSrc := "foo"
 	devPath := "/dev/bar"
 
-	err = plugin.Create(ctx, client, name, func(cfg *plugin.Config) {
+	// Create a new plugin with extra settings
+	err := plugin.Create(ctx, client, name, func(cfg *plugin.Config) {
 		cfg.Env = []types.PluginEnv{{Name: "DEBUG", Value: &initialValue, Settable: []string{"value"}}}
 		cfg.Mounts = []types.PluginMount{
 			{Name: "pmount1", Settable: []string{"source"}, Type: "none", Source: &mntSrc},
@@ -354,59 +351,13 @@ func (s *DockerSuite) TestPluginInspectOnWindows(c *check.C) {
 	c.Assert(err.Error(), checker.Contains, "plugins are not supported on this platform")
 }
 
-func (s *DockerTrustSuite) TestPluginTrustedInstall(c *check.C) {
-	testRequires(c, DaemonIsLinux, IsAmd64, Network)
-
-	trustedName := s.setupTrustedplugin(c, pNameWithTag, "trusted-plugin-install")
-
-	cli.Docker(cli.Args("plugin", "install", "--grant-all-permissions", trustedName), trustedCmd).Assert(c, icmd.Expected{
-		Out: trustedName,
-	})
-
-	out := cli.DockerCmd(c, "plugin", "ls").Combined()
-	c.Assert(out, checker.Contains, "true")
-
-	out = cli.DockerCmd(c, "plugin", "disable", trustedName).Combined()
-	c.Assert(strings.TrimSpace(out), checker.Contains, trustedName)
-
-	out = cli.DockerCmd(c, "plugin", "enable", trustedName).Combined()
-	c.Assert(strings.TrimSpace(out), checker.Contains, trustedName)
-
-	out = cli.DockerCmd(c, "plugin", "rm", "-f", trustedName).Combined()
-	c.Assert(strings.TrimSpace(out), checker.Contains, trustedName)
-
-	// Try untrusted pull to ensure we pushed the tag to the registry
-	cli.Docker(cli.Args("plugin", "install", "--disable-content-trust=true", "--grant-all-permissions", trustedName), trustedCmd).Assert(c, SuccessDownloaded)
-
-	out = cli.DockerCmd(c, "plugin", "ls").Combined()
-	c.Assert(out, checker.Contains, "true")
-
-}
-
-func (s *DockerTrustSuite) TestPluginUntrustedInstall(c *check.C) {
-	testRequires(c, DaemonIsLinux, IsAmd64, Network)
-
-	pluginName := fmt.Sprintf("%v/dockercliuntrusted/plugintest:latest", privateRegistryURL)
-	// install locally and push to private registry
-	cli.DockerCmd(c, "plugin", "install", "--grant-all-permissions", "--alias", pluginName, pNameWithTag)
-	cli.DockerCmd(c, "plugin", "push", pluginName)
-	cli.DockerCmd(c, "plugin", "rm", "-f", pluginName)
-
-	// Try trusted install on untrusted plugin
-	cli.Docker(cli.Args("plugin", "install", "--grant-all-permissions", pluginName), trustedCmd).Assert(c, icmd.Expected{
-		ExitCode: 1,
-		Err:      "Error: remote trust data does not exist",
-	})
-}
-
 func (ps *DockerPluginSuite) TestPluginIDPrefix(c *check.C) {
 	name := "test"
-	client, err := request.NewClient()
-	c.Assert(err, checker.IsNil, check.Commentf("error creating test client"))
+	client := testEnv.APIClient()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	initialValue := "0"
-	err = plugin.Create(ctx, client, name, func(cfg *plugin.Config) {
+	err := plugin.Create(ctx, client, name, func(cfg *plugin.Config) {
 		cfg.Env = []types.PluginEnv{{Name: "DEBUG", Value: &initialValue, Settable: []string{"value"}}}
 	})
 	cancel()
@@ -466,8 +417,7 @@ func (ps *DockerPluginSuite) TestPluginListDefaultFormat(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	name := "test:latest"
-	client, err := request.NewClient()
-	c.Assert(err, checker.IsNil, check.Commentf("error creating test client"))
+	client := testEnv.APIClient()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -523,7 +473,7 @@ func (s *DockerSuite) TestPluginUpgrade(c *check.C) {
 
 func (s *DockerSuite) TestPluginMetricsCollector(c *check.C) {
 	testRequires(c, DaemonIsLinux, Network, SameHostDaemon, IsAmd64)
-	d := daemon.New(c, dockerBinary, dockerdBinary, daemon.Config{})
+	d := daemon.New(c, dockerBinary, dockerdBinary)
 	d.Start(c)
 	defer d.Stop(c)
 

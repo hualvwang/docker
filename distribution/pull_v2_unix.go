@@ -3,10 +3,10 @@
 package distribution // import "github.com/docker/docker/distribution"
 
 import (
+	"context"
 	"runtime"
 
 	"github.com/docker/distribution"
-	"github.com/docker/distribution/context"
 	"github.com/docker/distribution/manifest/manifestlist"
 	"github.com/sirupsen/logrus"
 )
@@ -26,4 +26,9 @@ func filterManifests(manifests []manifestlist.ManifestDescriptor, os string) []m
 		}
 	}
 	return matches
+}
+
+// checkImageCompatibility is a Windows-specific function. No-op on Linux
+func checkImageCompatibility(imageOS, imageOSVersion string) error {
+	return nil
 }

@@ -19,7 +19,6 @@ import (
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/registry"
-	"github.com/docker/docker/volume/drivers"
 	"github.com/docker/go-connections/sockets"
 	"github.com/sirupsen/logrus"
 )
@@ -80,8 +79,9 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 
 	var ds [][2]string
 	drivers := ""
+	statuses := daemon.imageService.LayerStoreStatus()
 	for os, gd := range daemon.graphDrivers {
-		ds = append(ds, daemon.layerStores[os].DriverStatus()...)
+		ds = append(ds, statuses[os]...)
 		drivers += gd
 		if len(daemon.graphDrivers) > 1 {
 			drivers += fmt.Sprintf(" (%s) ", os)
@@ -95,7 +95,7 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 		ContainersRunning:  cRunning,
 		ContainersPaused:   cPaused,
 		ContainersStopped:  cStopped,
-		Images:             len(daemon.imageStore.Map()),
+		Images:             daemon.imageService.CountImages(),
 		Driver:             drivers,
 		DriverStatus:       ds,
 		Plugins:            daemon.showPluginsInfo(),
@@ -195,7 +195,7 @@ func (daemon *Daemon) SystemVersion() types.Version {
 func (daemon *Daemon) showPluginsInfo() types.PluginsInfo {
 	var pluginsInfo types.PluginsInfo
 
-	pluginsInfo.Volume = volumedrivers.GetDriverList()
+	pluginsInfo.Volume = daemon.volumes.GetDriverList()
 	pluginsInfo.Network = daemon.GetNetworkDriverList()
 	// The authorization plugins are returned in the order they are
 	// used as they constitute a request/response modification chain.

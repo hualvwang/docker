@@ -2,6 +2,7 @@ package taskreaper
 
 import (
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/docker/swarmkit/api"
@@ -23,6 +24,9 @@ const (
 // exist for the same service/instance or service/nodeid combination.
 type TaskReaper struct {
 	store *store.MemoryStore
+
+	// closeOnce ensures that stopChan is closed only once
+	closeOnce sync.Once
 
 	// taskHistory is the number of tasks to keep
 	taskHistory int64
@@ -96,10 +100,10 @@ func (tr *TaskReaper) Run(ctx context.Context) {
 			// Serviceless tasks can be cleaned up right away since they are not attached to a service.
 			tr.cleanup = append(tr.cleanup, t.ID)
 		}
-		// tasks with desired state REMOVE that have progressed beyond COMPLETE can be cleaned up
-		// right away
+		// tasks with desired state REMOVE that have progressed beyond COMPLETE or
+		// haven't been assigned yet can be cleaned up right away
 		for _, t := range removeTasks {
-			if t.Status.State >= api.TaskStateCompleted {
+			if t.Status.State < api.TaskStateAssigned || t.Status.State >= api.TaskStateCompleted {
 				tr.cleanup = append(tr.cleanup, t.ID)
 			}
 		}
@@ -138,10 +142,10 @@ func (tr *TaskReaper) Run(ctx context.Context) {
 				if t.Status.State >= api.TaskStateOrphaned && t.ServiceID == "" {
 					tr.cleanup = append(tr.cleanup, t.ID)
 				}
-				// add tasks that have progressed beyond COMPLETE and have desired state REMOVE. These
-				// tasks are associated with slots that were removed as part of a service scale down
-				// or service removal.
-				if t.DesiredState == api.TaskStateRemove && t.Status.State >= api.TaskStateCompleted {
+				// add tasks that are yet unassigned or have progressed beyond COMPLETE, with
+				// desired state REMOVE. These tasks are associated with slots that were removed
+				// as part of a service scale down or service removal.
+				if t.DesiredState == api.TaskStateRemove && (t.Status.State < api.TaskStateAssigned || t.Status.State >= api.TaskStateCompleted) {
 					tr.cleanup = append(tr.cleanup, t.ID)
 				}
 			case api.EventUpdateCluster:
@@ -247,7 +251,12 @@ func (tr *TaskReaper) tick() {
 
 			runningTasks := 0
 			for _, t := range historicTasks {
-				if t.DesiredState <= api.TaskStateRunning || t.Status.State <= api.TaskStateRunning {
+				// Skip tasks which are desired to be running but the current state
+				// is less than or equal to running.
+				// This check is important to ignore tasks which are running or need to be running,
+				// but to delete tasks which are either past running,
+				// or have not reached running but need to be shutdown (because of a service update, for example).
+				if t.DesiredState == api.TaskStateRunning && t.Status.State <= api.TaskStateRunning {
 					// Don't delete running tasks
 					runningTasks++
 					continue
@@ -281,9 +290,14 @@ func (tr *TaskReaper) tick() {
 }
 
 // Stop stops the TaskReaper and waits for the main loop to exit.
+// Stop can be called in two cases. One when the manager is
+// shutting down, and the other when the manager (the leader) is
+// becoming a follower. Since these two instances could race with
+// each other, we use closeOnce here to ensure that TaskReaper.Stop()
+// is called only once to avoid a panic.
 func (tr *TaskReaper) Stop() {
-	// TODO(dperny) calling stop on the task reaper twice will cause a panic
-	// because we try to close a channel that will already have been closed.
-	close(tr.stopChan)
+	tr.closeOnce.Do(func() {
+		close(tr.stopChan)
+	})
 	<-tr.doneChan
 }
